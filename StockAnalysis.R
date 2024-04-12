@@ -4,6 +4,11 @@ library(quantmod)
 library(forecast)
 library(ggplot2)
 library(readxl)
+library(xgboost)
+library(randomForest)
+library(nnet)
+library(e1071)
+
 
 getSymbols("AAPL")
 getSymbols("GOOG")
@@ -138,17 +143,144 @@ Subjectivity.1 = c(NA, as.vector(tesla.comb$Subjectivity[1:(days-1)]))
 Subjectivity.2 = c(NA, NA, as.vector(tesla.comb$Subjectivity[1:(days-2)]))
 Subjectivity.3 = c(NA, NA, NA, as.vector(tesla.comb$Subjectivity[1:(days-3)]))
 tesla.matrix = cbind(tesla.matrix, Polarity.1, Polarity.2, Polarity.3, Subjectivity.1, Subjectivity.2, Subjectivity.3)
-tesla.train = window(xts(tesla.matrix, order.by = as.Date(rownames(tesla.matrix))), end = "2020-4-10")
-tesla.test = window(xts(tesla.matrix, order.by = as.Date(rownames(tesla.matrix))), start = "2020-4-11")
+tesla.train = window(xts(tesla.matrix, order.by = as.Date(rownames(tesla.matrix))), end = '2020-4-10')
+tesla.test = window(xts(tesla.matrix, order.by = as.Date(rownames(tesla.matrix))), start = '2020-4-11')
+
+
+
+
+
+
+
+
+
+
 tesla.lm = lm(index ~ Polarity + Subjectivity, data = tesla.matrix)
 summary(tesla.lm)
 tesla.lm = lm(index ~ Polarity.1 + Polarity.2 + Polarity.3 + Subjectivity.1 + Subjectivity.2 + Subjectivity.3, data = tesla.train)
 summary(tesla.lm)
-df = cbind(xts(predict(tesla.lm, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
+lmdf = cbind(xts(predict(tesla.lm, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
+colnames(lmdf) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(lmdf) + ggtitle("Training Data")
+lmpred = predict(tesla.lm, newdata = tesla.test)
+lmdf = cbind(xts(predict(tesla.lm, newdata = tesla.test), order.by = time(tesla.test)), window(tesla.pdiff.corrected, start = "2020-4-11"))
+colnames(lmdf) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(lmdf) + ggtitle("Test Data")
+lmpred.move = ifelse(lmpred >= 0.005, yes = 1, no = ifelse(lmpred <= -0.005, yes = -1, no = 0))
+lmpred.move = xts(lmpred.move, order.by = as.Date(names(lmpred.move)))
+test = cbind(lmpred.move, window(tesla.pdiff.corrected, start = "2020-4-11"))
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+print(acc(test))
+lmpred = predict(tesla.lm, newdata = tesla.matrix)
+lmdf = cbind(xts(lmpred, order.by = as.Date(rownames(tesla.matrix))), tesla.pdiff.corrected)
+colnames(lmdf) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(lmdf) + ggtitle("All Data")
+lmpred.move = ifelse(lmpred >= 0.005, yes = 1, no = ifelse(lmpred <= -0.005, yes = -1, no = 0))
+lmpred.move = xts(lmpred.move, order.by = as.Date(names(lmpred.move)))
+test = cbind(lmpred.move, tesla.pdiff.corrected)
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+lm_acc = acc(test)
+
+
+
+
+
+
+
+
+tesla.matrix = na.omit(tesla.matrix)
+tesla.train = na.omit(tesla.train)
+best.mtry.results <- tuneRF(tesla.train[, -ncol(tesla.train)], tesla.train$index, 
+                            stepFactor=1.5, improve=0.01, trace=TRUE)
+
+# Display the matrix to understand its structure
+print(best.mtry.results)
+
+# Typically, the first column is the OOB error, and row names are the mtry values:
+# Find the row with the minimum OOB error
+best.mtry.index <- which.min(best.mtry.results[, 1])  # assuming column 1 holds OOB errors
+best.mtry.value <- as.numeric(rownames(best.mtry.results)[best.mtry.index])
+print(best.mtry.value)
+tesla.randomForest = randomForest(index ~ Polarity + Subjectivity, data = tesla.matrix, mtry = best.mtry.value)
+summary(tesla.randomForest)
+tesla.randomForest = randomForest(index ~ Polarity.1 + Polarity.2 + Polarity.3 + Subjectivity.1 + Subjectivity.2 + Subjectivity.3, data = tesla.train, mtry = best.mtry.value)
+summary(tesla.randomForest)
+
+rfdf = cbind(xts(predict(tesla.randomForest, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
+colnames(rfdf) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(rfdf) + ggtitle("Training Data")
+rfpred = predict(tesla.randomForest, newdata = tesla.test)
+rfdf = cbind(xts(predict(tesla.randomForest, newdata = tesla.test), order.by = time(tesla.test)), window(tesla.pdiff.corrected, start = "2020-4-11"))
+colnames(rfdf) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(rfdf) + ggtitle("Test Data")
+rfpred.move = ifelse(rfpred >= 0.005, yes = 1, no = ifelse(rfpred <= -0.005, yes = -1, no = 0))
+rfpred.move = xts(rfpred.move, order.by = as.Date(names(rfpred.move)))
+test = cbind(rfpred.move, window(tesla.pdiff.corrected, start = "2020-4-11"))
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+print(acc(test))
+rfpred = predict(tesla.randomForest, newdata = tesla.matrix)
+rfdf = cbind(xts(rfpred, order.by = as.Date(rownames(tesla.matrix))), tesla.pdiff.corrected)
+colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(df) + ggtitle("All Data")
+rfpred.move = ifelse(rfpred >= 0.005, yes = 1, no = ifelse(rfpred <= -0.005, yes = -1, no = 0))
+rfpred.move = xts(rfpred.move, order.by = as.Date(names(rfpred.move)))
+test = cbind(rfpred.move, tesla.pdiff.corrected)
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+rf_acc = acc(test)
+
+results_df <- data.frame(
+  model = c("Linear Regression", "RandomForest"),
+  accuracy = c(lm_acc, rf_acc)
+)
+
+results_df
+
+
+
+
+dtrain <- xgb.DMatrix(data = as.matrix(tesla.train[, -1]), label = tesla.train$index)
+dtest <- xgb.DMatrix(data = as.matrix(tesla.test[, -1]), label = tesla.test$index)
+params <- list(
+  booster = "gbtree",
+  objective = "reg:squarederror",
+  eta = 0.1,
+  max_depth = 6,
+  subsample = 0.5,
+  colsample_bytree = 0.5
+)
+nrounds <- 100
+tesla.xgb <- xgb.train(params = params, data = dtrain, nrounds = nrounds)
+predictions.train <- predict(tesla.xgb, dtrain)
+predictions.test <- predict(tesla.xgb, dtest)
+xts_train <- xts(predictions.train, order.by = as.Date(rownames(tesla.train)))
+xts_test <- xts(predictions.test, order.by = as.Date(rownames(tesla.test)))
+df_train <- cbind(xts_train, window(tesla.pdiff.corrected, end = "2020-4-10"))
+df_test <- cbind(xts_test, window(tesla.pdiff.corrected, start = "2020-4-11"))
+colnames(test) = c("pred.move", "truth")
+print(acc(test))
+
+
+
+
+
+
+
+
+
+
+tesla.glm = glm(index ~ Polarity + Subjectivity, data = tesla.matrix)
+summary(tesla.glm)
+tesla.glm = glm(index ~ Polarity.1 + Polarity.2 + Polarity.3 + Subjectivity.1 + Subjectivity.2 + Subjectivity.3, data = tesla.train)
+summary(tesla.glm)
+df = cbind(xts(predict(tesla.glm, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
 colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
 autoplot(df) + ggtitle("Training Data")
-pred = predict(tesla.lm, newdata = tesla.test)
-df = cbind(xts(predict(tesla.lm, newdata = tesla.test), order.by = time(tesla.test)), window(tesla.pdiff.corrected, start = "2020-4-11"))
+pred = predict(tesla.glm, newdata = tesla.test)
+df = cbind(xts(predict(tesla.glm, newdata = tesla.test), order.by = time(tesla.test)), window(tesla.pdiff.corrected, start = "2020-4-11"))
 colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
 autoplot(df) + ggtitle("Test Data")
 pred.move = ifelse(pred >= 0.005, yes = 1, no = ifelse(pred <= -0.005, yes = -1, no = 0))
@@ -157,7 +289,44 @@ test = cbind(pred.move, window(tesla.pdiff.corrected, start = "2020-4-11"))
 test = na.omit(test)
 colnames(test) = c("pred.move", "truth")
 print(acc(test))
-pred = predict(tesla.lm, newdata = tesla.matrix)
+pred = predict(tesla.glm, newdata = tesla.matrix)
+df = cbind(xts(pred, order.by = as.Date(rownames(tesla.matrix))), tesla.pdiff.corrected)
+colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(df) + ggtitle("All Data")
+pred.move = ifelse(pred >= 0.005, yes = 1, no = ifelse(pred <= -0.005, yes = -1, no = 0))
+pred.move = xts(pred.move, order.by = as.Date(names(pred.move)))
+test = cbind(pred.move, tesla.pdiff.corrected)
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+print(acc(test))
+
+
+
+
+
+
+
+
+
+
+tesla.nn = nnet(index ~ Polarity + Subjectivity, data = tesla.matrix, size = 10)
+summary(tesla.nn)
+tesla.nn = nnet(index ~ Polarity.1 + Polarity.2 + Polarity.3 + Subjectivity.1 + Subjectivity.2 + Subjectivity.3, data = tesla.train, size = 10)
+summary(tesla.nn)
+df = cbind(xts(predict(tesla.nn, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
+colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(df) + ggtitle("Training Data")
+pred = predict(tesla.nn, newdata = tesla.test)
+df = cbind(xts(predict(tesla.nn, newdata = tesla.test), order.by = time(tesla.test)), window(tesla.pdiff.corrected, start = "2020-4-11"))
+colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
+autoplot(df) + ggtitle("Test Data")
+pred.move = ifelse(pred >= 0.005, yes = 1, no = ifelse(pred <= -0.005, yes = -1, no = 0))
+pred.move = xts(pred.move, order.by = as.Date(names(pred.move)))
+test = cbind(pred.move, window(tesla.pdiff.corrected, start = "2020-4-11"))
+test = na.omit(test)
+colnames(test) = c("pred.move", "truth")
+print(acc(test))
+pred = predict(tesla.nn, newdata = tesla.matrix)
 df = cbind(xts(pred, order.by = as.Date(rownames(tesla.matrix))), tesla.pdiff.corrected)
 colnames(df) = c("Predicted Stock Movement", "Actual Stock Movement")
 autoplot(df) + ggtitle("All Data")
