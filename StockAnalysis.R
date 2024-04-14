@@ -194,20 +194,13 @@ tesla.matrix = na.omit(tesla.matrix)
 tesla.train = na.omit(tesla.train)
 best.mtry.results <- tuneRF(tesla.train[, -ncol(tesla.train)], tesla.train$index, 
                             stepFactor=1.5, improve=0.01, trace=TRUE)
-
-# Display the matrix to understand its structure
-print(best.mtry.results)
-
-# Typically, the first column is the OOB error, and row names are the mtry values:
-# Find the row with the minimum OOB error
-best.mtry.index <- which.min(best.mtry.results[, 1])  # assuming column 1 holds OOB errors
+best.mtry.index <- which.min(best.mtry.results[, 1])
 best.mtry.value <- as.numeric(rownames(best.mtry.results)[best.mtry.index])
 print(best.mtry.value)
 tesla.randomForest = randomForest(index ~ Polarity + Subjectivity, data = tesla.matrix, mtry = best.mtry.value)
 summary(tesla.randomForest)
 tesla.randomForest = randomForest(index ~ Polarity.1 + Polarity.2 + Polarity.3 + Subjectivity.1 + Subjectivity.2 + Subjectivity.3, data = tesla.train, mtry = best.mtry.value)
 summary(tesla.randomForest)
-
 rfdf = cbind(xts(predict(tesla.randomForest, newdata = tesla.train), order.by = time(tesla.train)), window(tesla.pdiff.corrected, end = "2020-4-10"))
 colnames(rfdf) = c("Predicted Stock Movement", "Actual Stock Movement")
 autoplot(rfdf) + ggtitle("Training Data")
